@@ -18,44 +18,40 @@ import java.util.List;
 public class fetchData extends AsyncTask<Void, Void, List<fetchData.LineStringWithGridcode>> {
 
     private DataCallback callback;
-    private String zipCode;
     private double startLat, startLng, destLat, destLng;
-    private boolean isPathRequest;
-
-    // Constructor for zip code request
-    public fetchData(DataCallback callback, String zipCode) {
-        this.callback = callback;
-        this.zipCode = zipCode;
-        this.isPathRequest = false;  // Indicates this is a color street request
-    }
+    private boolean isGoogleRoute;
 
     // Constructor for path request with coordinates
-    public fetchData(DataCallback callback, double startLat, double startLng, double destLat, double destLng) {
+    public fetchData(DataCallback callback, double startLat, double startLng, double destLat, double destLng, boolean isGoogleRoute) {
         this.callback = callback;
         this.startLat = startLat;
         this.startLng = startLng;
         this.destLat = destLat;
         this.destLng = destLng;
-        this.isPathRequest = true;  // Indicates this is a path request
+        this.isGoogleRoute = isGoogleRoute;
     }
 
     @Override
     protected List<LineStringWithGridcode> doInBackground(Void... voids) {
         List<LineStringWithGridcode> lineStringsWithGridcode = new ArrayList<>();
-        Log.d("FETCH_DATA", "Starting data fetch..."); // Log start of fetch
+        Log.d("FETCH_DATA", "Starting data fetch...");
+
         String apiUrl;
 
-        if (isPathRequest) {
-            // Safe path API endpoint
-            apiUrl = "https://backend-collision.onrender.com/api/SafePath?latitude1=" + startLat +
-                    "&longitude1=" + startLng + "&latitude2=" + destLat + "&longitude2=" + destLng;
-
+        if (isGoogleRoute) {
+            // ✅ Construct Google Maps API request
+            apiUrl = "https://maps.googleapis.com/maps/api/directions/json?origin=" + startLat + "," + startLng +
+                    "&destination=" + destLat + "," + destLng + "&key=AIzaSyCaKlsJUqN-Vc0y8AhdJiwkD_CqFNHFz-o";
         } else {
-            // Draw color street API endpoint by zip code
-            apiUrl = "https://backend-collision.onrender.com/api/" + zipCode;
+            // ✅ Construct Safe Route API request
+            apiUrl = "https://backend-collision.onrender.com/api/NYCSafeRouteWithPoints?latitude1=" + startLat +
+                    "&longitude1=" + startLng + "&latitude2=" + destLat + "&longitude2=" + destLng + "&gridcode=" + 9;
         }
 
+        Log.d("FETCH_DATA", "API URL: " + apiUrl);
+
         try {
+            // ✅ Make API request
             URL url = new URL(apiUrl);
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");
@@ -70,31 +66,96 @@ public class fetchData extends AsyncTask<Void, Void, List<fetchData.LineStringWi
                 }
                 in.close();
 
-                JSONArray jsonArray = new JSONArray(response.toString());
+                Log.d("FETCH_DATA", "API Response: " + response.toString());
 
-                for (int i = 0; i < jsonArray.length(); i++) {
-                    JSONObject feature = jsonArray.getJSONObject(i);
-                    int gridcode = feature.optInt("gridcode", 0);
+                JSONObject jsonResponse = new JSONObject(response.toString());
 
-                    JSONObject geometry = feature.getJSONObject("geom");
-                    if (geometry.getString("type").equals("LineString")) {
-                        JSONArray coordinates = geometry.getJSONArray("coordinates");
-                        List<LatLng> latLngList = new ArrayList<>();
-                        for (int j = 0; j < coordinates.length(); j++) {
-                            JSONArray coordPair = coordinates.getJSONArray(j);
-                            double lon = coordPair.getDouble(0);
-                            double lat = coordPair.getDouble(1);
-                            latLngList.add(new LatLng(lat, lon));
+                if (isGoogleRoute) {
+                    // ✅ Only process Google Maps route response
+                    JSONArray routes = jsonResponse.getJSONArray("routes");
+
+                    if (routes.length() > 0) {
+                        JSONObject route = routes.getJSONObject(0);
+                        JSONObject legs = route.getJSONArray("legs").getJSONObject(0);
+
+                        // ✅ Extract Distance & Duration
+                        String totalDistance = legs.getJSONObject("distance").getString("text");
+                        String totalDuration = legs.getJSONObject("duration").getString("text");
+
+                        Log.d("GOOGLE_ROUTE", "Total Distance: " + totalDistance);
+                        Log.d("GOOGLE_ROUTE", "Total Duration: " + totalDuration);
+
+                        // ✅ Send distance & duration to UI
+                        if (callback != null) {
+                            callback.onRouteInfoFetched(totalDistance, totalDuration);
                         }
-                        lineStringsWithGridcode.add(new LineStringWithGridcode(latLngList, gridcode));
+
+                        // ✅ Extract & decode polyline
+                        JSONObject overviewPolyline = route.getJSONObject("overview_polyline");
+                        String encodedPolyline = overviewPolyline.getString("points");
+                        List<LatLng> decodedPolyline = decodePolyline(encodedPolyline);
+                        lineStringsWithGridcode.add(new LineStringWithGridcode(decodedPolyline, 0));
+                    } else {
+                        Log.e("GOOGLE_ROUTE", "No routes found");
+                    }
+                } else {
+                    // ✅ Only process Safe Route API response
+                    if (!jsonResponse.has("dataset")) {
+                        Log.e("FETCH_DATA_ERROR", "API response does not contain dataset key");
+                        return lineStringsWithGridcode;
+                    }
+
+                    JSONArray dataset = jsonResponse.getJSONArray("dataset");
+
+                    if (dataset.length() == 0) {
+                        Log.e("FETCH_DATA_ERROR", "Dataset is empty, no lines to display");
+                        return lineStringsWithGridcode;
+                    }
+
+                    for (int i = 0; i < dataset.length(); i++) {
+                        JSONObject feature = dataset.getJSONObject(i);
+                        int gridcode = feature.optInt("gridcode", 0);
+
+                        if (!feature.has("geom")) {
+                            Log.e("FETCH_DATA_ERROR", "Skipping entry with missing geom");
+                            continue;
+                        }
+
+                        JSONObject geometry = feature.getJSONObject("geom");
+                        if (!geometry.has("coordinates")) {
+                            Log.e("FETCH_DATA_ERROR", "Skipping entry with missing coordinates");
+                            continue;
+                        }
+
+                        if (geometry.getString("type").equals("LineString")) {
+                            JSONArray coordinates = geometry.getJSONArray("coordinates");
+                            List<LatLng> latLngList = new ArrayList<>();
+
+                            for (int j = 0; j < coordinates.length(); j++) {
+                                JSONArray coordPair = coordinates.getJSONArray(j);
+                                double lon = coordPair.getDouble(0);
+                                double lat = coordPair.getDouble(1);
+                                latLngList.add(new LatLng(lat, lon));
+                            }
+
+                            Log.d("FETCH_DATA", "Parsed LineString with " + latLngList.size() + " points, gridcode: " + gridcode);
+                            lineStringsWithGridcode.add(new LineStringWithGridcode(latLngList, gridcode));
+                        }
+                    }
+
+                    if (lineStringsWithGridcode.isEmpty()) {
+                        Log.e("FETCH_DATA_ERROR", "No LineStrings were successfully parsed from API response");
                     }
                 }
+            } else {
+                Log.e("FETCH_DATA_ERROR", "API request failed with response code: " + responseCode);
             }
         } catch (Exception e) {
             Log.e("FETCH_DATA_ERROR", "Exception occurred: " + e.getMessage());
         }
         return lineStringsWithGridcode;
     }
+
 
     @Override
     protected void onPostExecute(List<LineStringWithGridcode> linesWithGridcode) {
@@ -105,6 +166,7 @@ public class fetchData extends AsyncTask<Void, Void, List<fetchData.LineStringWi
 
     public interface DataCallback {
         void onDataFetched(List<LineStringWithGridcode> linesWithGridcode);
+        void onRouteInfoFetched(String distance, String duration); // ✅ New method for distance & duration
     }
 
     // Helper class to store LineString and gridcode together
@@ -117,115 +179,36 @@ public class fetchData extends AsyncTask<Void, Void, List<fetchData.LineStringWi
             this.gridcode = gridcode;
         }
     }
-}
 
-/*package com.bignerdranch.android.androidcllisionheatmap;
+    // Method to decode polyline strings into LatLng points
+    private List<LatLng> decodePolyline(String encoded) {
+        List<LatLng> poly = new ArrayList<>();
+        int index = 0, len = encoded.length();
+        int lat = 0, lng = 0;
 
-import android.os.AsyncTask;
-import android.util.Log;
+        while (index < len) {
+            int b, shift = 0, result = 0;
+            do {
+                b = encoded.charAt(index++) - 63;
+                result |= (b & 0x1f) << shift;
+                shift += 5;
+            } while (b >= 0x20);
+            int dlat = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
+            lat += dlat;
 
-import com.google.android.gms.maps.model.LatLng;
+            shift = 0;
+            result = 0;
+            do {
+                b = encoded.charAt(index++) - 63;
+                result |= (b & 0x1f) << shift;
+                shift += 5;
+            } while (b >= 0x20);
+            int dlng = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
+            lng += dlng;
 
-import org.json.JSONArray;
-import org.json.JSONObject;
-
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.util.ArrayList;
-import java.util.List;
-
-public class fetchData extends AsyncTask<Void, Void, List<fetchData.LineStringWithGridcode>> {
-
-    private DataCallback callback;
-
-    // Constructor to receive the callback from MapsActivity
-    public fetchData(DataCallback callback) {
-        this.callback = callback;
-    }
-
-    // Class to hold the line and gridcode together
-    public static class LineStringWithGridcode {
-        List<LatLng> lineString;
-        int gridcode;
-
-        public LineStringWithGridcode(List<LatLng> lineString, int gridcode) {
-            this.lineString = lineString;
-            this.gridcode = gridcode;
+            LatLng p = new LatLng((lat / 1E5), (lng / 1E5));
+            poly.add(p);
         }
-    }
-
-    @Override
-    protected List<LineStringWithGridcode> doInBackground(Void... voids) {
-        List<LineStringWithGridcode> lineStringsWithGridcode = new ArrayList<>();
-        String apiUrl = "https://backend-collision.onrender.com/api/10007"; // Your API endpoint https://backend-collision.onrender.com/swagger-ui/index.html#/
-
-        try {
-            // Fetch data from the API
-            URL url = new URL(apiUrl);
-            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-            connection.setRequestMethod("GET");
-
-            // Get the response
-            int responseCode = connection.getResponseCode();
-            if (responseCode == HttpURLConnection.HTTP_OK) {
-                BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-                StringBuilder response = new StringBuilder();
-                String line;
-                while ((line = in.readLine()) != null) {
-                    response.append(line);
-                }
-                in.close();
-
-                // Parse the response
-                JSONArray jsonArray = new JSONArray(response.toString());
-
-                // Extract LineStrings and gridcode
-                for (int i = 0; i < jsonArray.length(); i++) {
-                    JSONObject feature = jsonArray.getJSONObject(i);
-                    int gridcode = feature.optInt("gridcode", 0);  // Default to 0 if not found
-                    JSONObject geometry = feature.getJSONObject("geom");
-
-                    // Make sure the geometry type is LineString
-                    if (geometry.getString("type").equals("LineString")) {
-                        JSONArray coordinates = geometry.getJSONArray("coordinates");
-                        List<LatLng> latLngList = new ArrayList<>();
-                        for (int j = 0; j < coordinates.length(); j++) {
-                            JSONArray coordPair = coordinates.getJSONArray(j);
-                            double lon = coordPair.getDouble(0);
-                            double lat = coordPair.getDouble(1);
-                            latLngList.add(new LatLng(lat, lon));  // Use lat, lon in correct order
-                        }
-
-                        // Add the lineString and gridcode to the list
-                        lineStringsWithGridcode.add(new LineStringWithGridcode(latLngList, gridcode));
-
-                        // Log the gridcode and size of LineString
-                        Log.d("FETCH_DATA", "Gridcode: " + gridcode + ", LineString size: " + latLngList.size());
-                    }
-                }
-            }
-        } catch (Exception e) {
-            Log.e("FETCH_DATA_ERROR", "Exception occurred: " + e.getMessage());
-        }
-
-        return lineStringsWithGridcode;  // Return the lines and gridcode data
-    }
-
-    @Override
-    protected void onPostExecute(List<LineStringWithGridcode> linesWithGridcode) {
-        if (callback != null) {
-            callback.onDataFetched(linesWithGridcode);  // Pass the data to the callback
-        }
-    }
-
-    // Define an interface to act as a callback
-    public interface DataCallback {
-        void onDataFetched(List<LineStringWithGridcode> linesWithGridcode);
+        return poly;
     }
 }
-// Updated fetchData class with two endpoint methods for street data and safe path data
-*/
-
-

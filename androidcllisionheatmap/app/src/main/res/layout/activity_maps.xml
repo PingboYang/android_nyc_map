@@ -1,14 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--<fragment xmlns:android="http://schemas.android.com/apk/res/android"-->
-<!--    xmlns:map="http://schemas.android.com/apk/res-auto"-->
-<!--    xmlns:tools="http://schemas.android.com/tools"-->
-<!--    android:id="@+id/map"-->
-<!--    android:name="com.google.android.gms.maps.SupportMapFragment"-->
-<!--    android:layout_width="match_parent"-->
-<!--    android:layout_height="match_parent"-->
-<!--    tools:context=".MapsActivity" />-->
-
-<!-- res/layout/activity_maps.xml -->
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
@@ -16,66 +6,74 @@
     android:layout_height="match_parent"
     tools:context=".MapsActivity">
 
-    <!-- Start location input -->
-
+    <!-- Map Fragment -->
     <fragment
         android:id="@+id/map"
         android:name="com.google.android.gms.maps.SupportMapFragment"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- Start Location Input -->
     <EditText
         android:id="@+id/start_location"
         android:layout_width="250dp"
         android:layout_height="wrap_content"
         android:hint="Start Location (Lat,Lng)"
         android:layout_alignParentTop="true"
-        android:layout_margin="10dp"
+        android:layout_marginTop="20dp"
+        android:layout_centerHorizontal="true"
         android:padding="8dp"
         android:background="@android:drawable/edit_text"
         android:inputType="text" />
 
-    <!-- Destination location input -->
+    <!-- Destination Location Input -->
     <EditText
         android:id="@+id/destination_location"
         android:layout_width="250dp"
         android:layout_height="wrap_content"
         android:hint="Destination (Lat,Lng)"
         android:layout_below="@id/start_location"
-        android:layout_margin="10dp"
+        android:layout_marginTop="10dp"
+        android:layout_centerHorizontal="true"
         android:padding="8dp"
         android:background="@android:drawable/edit_text"
         android:inputType="text" />
 
-    <EditText
-        android:id="@+id/zip_code_input"
-        android:layout_width="250dp"
+    <!-- Button for Google Route -->
+    <Button
+        android:id="@+id/google_route_button"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:hint="zipcode"
+        android:text="Google Route"
         android:layout_below="@id/destination_location"
-        android:layout_margin="10dp"
-        android:padding="8dp"
-        android:background="@android:drawable/edit_text"
-        android:inputType="text" />
+        android:layout_marginTop="10dp"
+        android:layout_centerHorizontal="true"
+        android:padding="8dp" />
 
-    <!-- Draw Path Button -->
+    <!-- Button for Safe Route -->
     <Button
-        android:id="@+id/draw_path_button"
+        android:id="@+id/safe_route_button"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Draw Path"
-        android:layout_below="@id/zip_code_input"
-        android:layout_margin="10dp" />
+        android:text="Safe Route"
+        android:layout_below="@id/google_route_button"
+        android:layout_marginTop="10dp"
+        android:layout_centerHorizontal="true"
+        android:padding="8dp" />
 
-    <!-- Draw Color Street Button -->
-    <Button
-        android:id="@+id/draw_color_street_button"
+    <!-- Route Information (Distance & Duration) -->
+    <TextView
+        android:id="@+id/route_info_text"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Draw Color Street"
-        android:layout_below="@id/draw_path_button"
-        android:layout_margin="10dp" />
+        android:text="Route Info: "
+        android:textSize="16sp"
+        android:textColor="@android:color/black"
+        android:layout_below="@id/safe_route_button"
+        android:layout_marginTop="15dp"
+        android:layout_centerHorizontal="true"
+        android:padding="10dp"
+        android:background="@android:color/white"
+        android:visibility="gone" />
 
 </RelativeLayout>
-
-
